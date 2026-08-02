@@ -164,6 +164,7 @@ label:first-child{margin-top:0}
   <button class="tab" onclick="switchTab('goals')">🎯 Goals</button>
   <button class="tab" onclick="switchTab('income')">📈 Income</button>
   <button class="tab" onclick="switchTab('wins')">🏆 Wins</button>
+  <button class="tab" onclick="switchTab('history')">📅 History</button>
   <button class="tab" onclick="switchTab('settings')">⚙️ Settings</button>
 </div>
 
@@ -371,6 +372,15 @@ label:first-child{margin-top:0}
   </div>
 </div>
 
+<!-- HISTORY TAB -->
+<div id="page-history" class="page">
+  <div class="card">
+    <div class="card-title">📅 Task history — all days</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Every day you have used the app. Tap a day to expand it.</p>
+    <div id="history-list"><div class="empty">No history yet.</div></div>
+  </div>
+</div>
+
 <!-- SETTINGS TAB -->
 <div id="page-settings" class="page">
   <div class="card">
@@ -519,7 +529,7 @@ function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.c
 
 function switchTab(name){
   document.querySelectorAll('.tab').forEach(function(b,i){
-    var names=['money','today','goals','income','wins','settings'];
+    var names=['money','today','goals','income','wins','history','settings'];
     b.classList.toggle('active',names[i]===name);
   });
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
@@ -529,6 +539,7 @@ function switchTab(name){
   if(name==='goals')renderGoals();
   if(name==='income')renderStreams();
   if(name==='wins')renderWins();
+  if(name==='history')renderHistory();
   if(name==='settings')renderSettings();
 }
 
@@ -718,27 +729,64 @@ function addTask(){
   save();closeModal('add-task');renderTasks();toast('Task added ✓');
 }
 
-function toggleTask(i){S.tasks[i].done=!S.tasks[i].done;save();renderTasks();}
+function toggleTask(i){S.tasks[i].done=!S.tasks[i].done;if(S.tasks[i].done)S.tasks[i].overdue=null;save();renderTasks();}
 function delTask(i){S.tasks.splice(i,1);save();renderTasks();}
 
 function renderTasks(){
-  var todayTasks=S.tasks.filter(function(t){return t.date===today();});
+  var tod=today();
+  // carry over unfinished tasks from previous days
+  var changed=false;
+  S.tasks.forEach(function(t){
+    if(!t.done && t.date!==tod){
+      if(!t.overdue)t.overdue=t.date;
+      t.date=tod;
+      changed=true;
+    }
+  });
+  if(changed)save();
+
+  var todayTasks=S.tasks.filter(function(t){return t.date===tod;});
   var done=todayTasks.filter(function(t){return t.done;}).length;
   document.getElementById('t-done').textContent=done;
   document.getElementById('t-total').textContent=todayTasks.length;
   var list=document.getElementById('task-list');
   if(!todayTasks.length){list.innerHTML='<div class="empty">No tasks yet. Tap + Add to start.</div>';return;}
+
+  // overdue tasks first
+  todayTasks.sort(function(a,b){
+    if(a.overdue&&!a.done&&!(b.overdue&&!b.done))return -1;
+    if(!(a.overdue&&!a.done)&&b.overdue&&!b.done)return 1;
+    return 0;
+  });
+
   list.innerHTML=todayTasks.map(function(t){
     var i=S.tasks.indexOf(t);
-    return '<div class="task-item">'
-      +'<div class="chk'+(t.done?' done':'')+'" onclick="toggleTask('+i+')">'+(t.done?'✓':'')+'</div>'
-      +'<div style="flex:1"><div class="task-text'+(t.done?' done':'')+'">'+t.text+'</div>'
-      +'<div class="task-cat">'+t.cat+'</div></div>'
-      +'<button class="tx-del" onclick="delTask('+i+')">×</button>'
-      +'</div>';
+    var isOverdue=!!t.overdue&&!t.done;
+    var overdueLabel='';
+    if(isOverdue){
+      var od=new Date(t.overdue);
+      var days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      var dd=('0'+od.getDate()).slice(-2);
+      var yy=String(od.getFullYear()).slice(-2);
+      overdueLabel=dd+'.'+months[od.getMonth()]+' '+yy;
+    }
+    var borderStyle=isOverdue?'border-left:3px solid var(--danger);padding-left:8px;':'';
+    var textStyle=isOverdue?'font-weight:700;color:var(--danger);':'';
+    var checkClass='chk'+(t.done?' done':'');
+    var textClass='task-text'+(t.done?' done':'');
+    var html='<div class="task-item" style="'+borderStyle+'">';
+    html+='<div class="'+checkClass+'" onclick="toggleTask('+i+')">'+(t.done?'✓':'')+'</div>';
+    html+='<div style="flex:1">';
+    html+='<div class="'+textClass+'" style="'+textStyle+'">'+t.text+'</div>';
+    html+='<div class="task-cat">';
+    if(isOverdue)html+='<span style="color:var(--danger);font-weight:600;font-size:11px">⚠ Pending from '+overdueLabel+' &nbsp;</span>';
+    html+=t.cat+'</div></div>';
+    html+='<button class="tx-del" onclick="delTask('+i+')">×</button>';
+    html+='</div>';
+    return html;
   }).join('');
 }
-
 function saveNote(){S.note=document.getElementById('daily-note').value;save();}
 
 // GOALS
@@ -1027,6 +1075,94 @@ function renderOwed(){
       +'<span style="font-size:15px;font-weight:700;color:'+(o.paid?'var(--muted)':'var(--success)')+'">£'+o.amt.toFixed(2)+'</span>'
       +'<button class="btn btn-sm" style="padding:4px 8px;font-size:11px;background:'+(o.paid?'var(--surface2)':'var(--success-bg)')+';color:'+(o.paid?'var(--muted)':'var(--success)')+'" onclick="markOwedPaid('+i+')">'+(o.paid?'Undo':'✓ Paid')+'</button>'
       +'<button class="tx-del" onclick="delOwed('+i+')">×</button>'
+      +'</div>';
+  }).join('');
+}
+
+
+// TASK HISTORY
+function getTaskHistory(){
+  // Build a map of date -> tasks (using original date for completed, current date for pending)
+  var history={};
+  S.tasks.forEach(function(t){
+    // Use overdue date as original date if available, else use current date
+    var origDate=t.overdue||t.date;
+    if(!history[origDate])history[origDate]=[];
+    // avoid duplicates
+    if(!history[origDate].find(function(x){return x.text===t.text&&x.cat===t.cat;})){
+      history[origDate].push(t);
+    }
+    // also add to current date if overdue and not done
+    if(t.overdue&&!t.done&&t.date!==origDate){
+      if(!history[t.date])history[t.date]=[];
+    }
+  });
+  return history;
+}
+
+function renderHistory(){
+  var list=document.getElementById('history-list');
+  if(!list)return;
+
+  // get all unique dates from tasks
+  var dateMap={};
+  S.tasks.forEach(function(t){
+    var orig=t.overdue||t.date;
+    if(!dateMap[orig])dateMap[orig]=[];
+    dateMap[orig].push(t);
+  });
+
+  var dates=Object.keys(dateMap).sort(function(a,b){return new Date(b)-new Date(a);});
+
+  // also add dates where no tasks existed (we can't know these without a log)
+  if(!dates.length){
+    list.innerHTML='<div class="empty">No task history yet. Start adding tasks today.</div>';
+    return;
+  }
+
+  function fmtDate(dateStr){
+    var d=new Date(dateStr);
+    var days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return days[d.getDay()]+', '+('0'+d.getDate()).slice(-2)+' '+months[d.getMonth()]+' '+d.getFullYear();
+  }
+
+  list.innerHTML=dates.map(function(date,idx){
+    var tasks=dateMap[date];
+    var done=tasks.filter(function(t){return t.done;}).length;
+    var total=tasks.length;
+    var allDone=done===total;
+    var isToday=date===today();
+    var pct=total?Math.round(done/total*100):0;
+
+    var tasksHtml=tasks.map(function(t){
+      var isOverdue=!!t.overdue&&!t.done;
+      var color=t.done?'var(--muted)':(isOverdue?'var(--danger)':'var(--text)');
+      var weight=isOverdue?'700':'400';
+      var strike=t.done?'line-through':'none';
+      return '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">'
+        +'<span style="font-size:14px;margin-top:1px">'+(t.done?'✅':'⬜')+'</span>'
+        +'<div style="flex:1">'
+        +'<div style="font-size:13px;font-weight:'+weight+';color:'+color+';text-decoration:'+strike+'">'+t.text+'</div>'
+        +'<div style="font-size:11px;color:var(--muted)">'+t.cat+(isOverdue?' · <span style="color:var(--danger)">⚠ Overdue</span>':'')+'</div>'
+        +'</div>'
+        +'</div>';
+    }).join('');
+
+    var headerColor=allDone?'var(--success)':(isToday?'var(--accent)':'var(--text)');
+    var badge=isToday?'<span style="font-size:10px;background:var(--accent-light);color:var(--accent);padding:2px 6px;border-radius:4px;font-weight:600;margin-left:6px">TODAY</span>':'';
+
+    return '<div style="margin-bottom:8px;border:1px solid var(--border);border-radius:10px;overflow:hidden">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;padding:12px;cursor:pointer;background:var(--surface)" onclick="var s=this.nextElementSibling;s.style.display=s.style.display===\'none\'?\'block\':\'none\'">'
+      +'<div>'
+      +'<div style="font-size:14px;font-weight:600;color:'+headerColor+'">'+fmtDate(date)+badge+'</div>'
+      +'<div style="font-size:12px;color:var(--muted);margin-top:2px">'+done+'/'+total+' completed ('+pct+'%)</div>'
+      +'</div>'
+      +'<span style="font-size:18px;color:var(--muted)">'+(allDone?'✅':'▾')+'</span>'
+      +'</div>'
+      +'<div style="display:'+(idx===0?'block':'none')+';padding:0 12px 8px;background:var(--bg)">'
+      +(tasks.length?tasksHtml:'<div style="font-size:13px;color:var(--muted);padding:8px 0">No tasks logged this day.</div>')
+      +'</div>'
       +'</div>';
   }).join('');
 }
